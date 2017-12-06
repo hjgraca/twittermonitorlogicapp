@@ -1,0 +1,250 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "cognitiveservicestextanalytics_1_Connection_Name": {
+      "type": "string",
+      "defaultValue": "cognitiveservicestextanalytics"
+    },
+    "cognitiveservicestextanalytics_1_Connection_DisplayName": {
+      "type": "string",
+      "defaultValue": "TwitterAnalysis"
+    },
+    "cognitiveservicestextanalytics_1_apiKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Cognitive Services Account Key"
+      }
+    },
+    "cognitiveservicestextanalytics_1_siteUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Root site url (Example: https://westus.api.cognitive.microsoft.com ).If not specified site url will be defaulted to 'https://westus.api.cognitive.microsoft.com'."
+      }
+    },
+    "teams_1_Connection_Name": {
+      "type": "string",
+      "defaultValue": "teams"
+    },
+    "teams_1_Connection_DisplayName": {
+      "type": "string",
+      "defaultValue": "thalme@microsoft.com"
+    },
+    "twitter_1_Connection_Name": {
+      "type": "string",
+      "defaultValue": "twitter"
+    },
+    "twitter_1_Connection_DisplayName": {
+      "type": "string",
+      "defaultValue": "nzthiago"
+    },
+    "LogicAppLocation": {
+      "type": "string",
+      "minLength": 1,
+      "allowedValues": [
+        "[resourceGroup().location]",
+        "eastasia",
+        "southeastasia",
+        "centralus",
+        "eastus",
+        "eastus2",
+        "westus",
+        "northcentralus",
+        "southcentralus",
+        "northeurope",
+        "westeurope",
+        "japanwest",
+        "japaneast",
+        "brazilsouth",
+        "australiaeast",
+        "australiasoutheast",
+        "southindia",
+        "centralindia",
+        "westindia",
+        "canadacentral",
+        "canadaeast",
+        "uksouth",
+        "ukwest",
+        "westcentralus",
+        "westus2"
+      ],
+      "defaultValue": "westus2"
+    }
+  },
+  "variables": {},
+  "resources": [
+    {
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "actions": {
+            "Condition": {
+              "type": "If",
+              "expression": "@greater(triggerBody()?['UserDetails']?['FollowersCount'], 50)",
+              "actions": {
+                "Detect_Sentiment": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['cognitiveservicestextanalytics']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/sentiment",
+                    "body": {
+                      "text": "@triggerBody()?['TweetText']"
+                    }
+                  },
+                  "runAfter": {}
+                },
+                "GetSentiment": {
+                  "type": "Function",
+                  "inputs": {
+                    "body": "@body('Detect_Sentiment')?['score']",
+                    "function": {
+                      "id": "/subscriptions/2bcd95b1-1835-4d41-92ac-60c9c434ffd0/resourceGroups/Serverless-TwitterAnalysis/providers/Microsoft.Web/sites/tweetsentiment/functions/GetSentiment"
+                    }
+                  },
+                  "runAfter": {
+                    "Detect_Sentiment": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Post_message": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['teams']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/beta/groups/@{encodeURIComponent('d9512817-7a64-4e57-98b3-5f5c7fd318a7')}/channels/@{encodeURIComponent('a4b48465-c743-40a1-8d9e-0072c16656ff')}/chatThreads",
+                    "body": {
+                      "rootMessage": {
+                        "body": {
+                          "content": "<table>\n        <tr>\n          <td>\n            <tr>A new @{body('GetSentiment')} tweet about Azure and Serverless:</tr>\n            <tr><p style=\"margin-top: 0px; width: 100%; margin-bottom: 0px;\">@{triggerBody()?['UserDetails']?['UserName']}</p></tr>\n            <tr><p style=\"margin-top: 0px; width: 100%; margin-bottom: 0px;\">&#64;@{triggerBody()?['TweetedBy']} - @{triggerBody()?['CreatedAtIso']}</p></tr>\n            <tr><p style=\"margin-top: 0px; width: 100%; margin-bottom: 0px;\">@{triggerBody()?['TweetText']}</p></tr>\n            <tr><a href=\"https://twitter.com/@{triggerBody()?['TweetedBy']}/status/@{triggerBody()?['TweetId']}\">View in Twitter</a></tr>\n          </td>\n        </tr>\n</table>",
+                          "contentType": 1
+                        }
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "GetSentiment": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "runAfter": {}
+            }
+          },
+          "parameters": {
+            "$connections": {
+              "defaultValue": {},
+              "type": "Object"
+            }
+          },
+          "triggers": {
+            "When_a_new_tweet_is_posted": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['twitter']['connectionId']"
+                  }
+                },
+                "method": "get",
+                "path": "/onnewtweet",
+                "queries": {
+                  "searchQuery": "azure AND serverless"
+                }
+              },
+              "recurrence": {
+                "frequency": "Minute",
+                "interval": 1
+              },
+              "splitOn": "@triggerBody()?['value']"
+            }
+          },
+          "contentVersion": "1.0.0.0",
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "cognitiveservicestextanalytics": {
+                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', 'westus2', '/managedApis/', 'cognitiveservicestextanalytics')]",
+                "connectionId": "[resourceId('Microsoft.Web/connections', parameters('cognitiveservicestextanalytics_1_Connection_Name'))]",
+                "connectionName": "[parameters('cognitiveservicestextanalytics_1_Connection_Name')]"
+              },
+              "teams": {
+                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', 'westus2', '/managedApis/', 'teams')]",
+                "connectionId": "[resourceId('Microsoft.Web/connections', parameters('teams_1_Connection_Name'))]",
+                "connectionName": "[parameters('teams_1_Connection_Name')]"
+              },
+              "twitter": {
+                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', 'westus2', '/managedApis/', 'twitter')]",
+                "connectionId": "[resourceId('Microsoft.Web/connections', parameters('twitter_1_Connection_Name'))]",
+                "connectionName": "[parameters('twitter_1_Connection_Name')]"
+              }
+            }
+          }
+        }
+      },
+      "name": "Twitter-Analysis",
+      "type": "Microsoft.Logic/workflows",
+      "location": "[parameters('LogicAppLocation')]",
+      "apiVersion": "2016-06-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', parameters('cognitiveservicestextanalytics_1_Connection_Name'))]",
+        "[resourceId('Microsoft.Web/connections', parameters('teams_1_Connection_Name'))]",
+        "[resourceId('Microsoft.Web/connections', parameters('twitter_1_Connection_Name'))]"
+      ]
+    },
+    {
+      "type": "MICROSOFT.WEB/CONNECTIONS",
+      "apiVersion": "2016-06-01",
+      "name": "[parameters('cognitiveservicestextanalytics_1_Connection_Name')]",
+      "location": "westus2",
+      "properties": {
+        "api": {
+          "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', 'westus2', '/managedApis/', 'cognitiveservicestextanalytics')]"
+        },
+        "displayName": "[parameters('cognitiveservicestextanalytics_1_Connection_DisplayName')]",
+        "parameterValues": {
+          "apiKey": "[parameters('cognitiveservicestextanalytics_1_apiKey')]",
+          "siteUrl": "[parameters('cognitiveservicestextanalytics_1_siteUrl')]"
+        }
+      }
+    },
+    {
+      "type": "MICROSOFT.WEB/CONNECTIONS",
+      "apiVersion": "2016-06-01",
+      "name": "[parameters('teams_1_Connection_Name')]",
+      "location": "westus2",
+      "properties": {
+        "api": {
+          "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', 'westus2', '/managedApis/', 'teams')]"
+        },
+        "displayName": "[parameters('teams_1_Connection_DisplayName')]"
+      }
+    },
+    {
+      "type": "MICROSOFT.WEB/CONNECTIONS",
+      "apiVersion": "2016-06-01",
+      "name": "[parameters('twitter_1_Connection_Name')]",
+      "location": "westus2",
+      "properties": {
+        "api": {
+          "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', 'westus2', '/managedApis/', 'twitter')]"
+        },
+        "displayName": "[parameters('twitter_1_Connection_DisplayName')]"
+      }
+    }
+  ],
+  "outputs": {}
+}
